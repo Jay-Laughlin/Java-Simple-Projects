@@ -83,15 +83,26 @@ class RotatingPlayer implements KeyListener
 	// Position & velocity (position is CENTER of car)
 	float x = 300, y = 300;
 	float xv = 0, yv = 0;
+	float throttle; //stores acceleration
 
 	// Motion tuning
 	float acceleration = 0.35f;
+	float maxSpeed = 40f;
 	float rotation = 0f; // degrees
-	float rotationAmount = 10.5f; // base steering strength
+	float rotationAmount = 7.5f; // base steering strength
 	float maxSteerSpeed = 7.0f; // speed at which steering is fully enabled
 
+	//breaking
+	float brakeStrength = 0.4f;
+	
+	// anisotropic friction
+	float forwardFriction = 0.98f;  // rolling friction
+	float sideFriction    = 0.85f;  // lateral friction (stronger)
+
+
+	
 	// Input buffer
-	boolean up, down, left, right;
+	boolean up, down, left, right, brake;
 
 	// Car dimensions/size
 	final int carLength = 40;
@@ -108,30 +119,95 @@ class RotatingPlayer implements KeyListener
 		// Forward direction
 		float fx = (float) Math.cos(rad);
 		float fy = (float) Math.sin(rad);
+		float sx = -fy;
+		float sy =  fx;
 
 		// Forward speed (projection of velocity)
 		float forwardSpeed = xv * fx + yv * fy;
 		float speed = Math.abs(forwardSpeed);
+		float sideSpeed    = xv * sx + yv * sy;
 
+		// anisotropic friction
+		forwardSpeed *= forwardFriction;  // rolling friction
+		sideSpeed    *= sideFriction;  // lateral friction (stronger)
+
+		//Note this braking only effects forward motion
+		//brakes may slightly effect side/lateral motion but
+		//most lateral dampening is based on tire friction and 
+		//is applied regardless of braking
+		float effectiveBrake =
+		        brakeStrength / (1.0f + Math.abs(forwardSpeed) * 0.1f);
+		
+		if (brake) {
+		    if (forwardSpeed > 0) {
+		        forwardSpeed = Math.max(forwardSpeed - effectiveBrake, 0);
+		    } else if (forwardSpeed < 0) {
+		        forwardSpeed = Math.min(forwardSpeed + effectiveBrake, 0);
+		    }
+		}	
+		
 		// Acceleration
-		if (up)
-		{
-			xv += fx * acceleration;
-			yv += fy * acceleration;
-		}
-		if (down)
-		{
-			xv -= fx * acceleration;
-			yv -= fy * acceleration;
-		}
+		// simple
+		//		if (up)
+		//		{
+		//			xv += fx * acceleration;
+		//			yv += fy * acceleration;
+		//		}
+		//		if (down)
+		//		{
+		//			xv -= fx * acceleration;
+		//			yv -= fy * acceleration;
+		//		}
 
+		{
+
+			//forward or reverse
+			int driveDir = 0;			//coast, slow down
+			if (up)   driveDir =  1;	//accelerate, strong
+			if (down) driveDir = -1;	//accelerate (but subtract from forward), weaker
+			
+			if (driveDir != 0)
+			    throttle = Math.min(throttle + 0.05f, 1.0f);
+			else
+			    throttle = Math.max(throttle - 0.08f, 0.0f);
+				
+			float baseEnginePower = 0.6f;
+			float reverseFactor = 0.45f; // reverse is weaker
+
+			float enginePower = (driveDir > 0)
+			        			? baseEnginePower
+			        			: baseEnginePower * reverseFactor;
+
+			float normalized = Math.min(Math.abs(forwardSpeed) / maxSpeed, 1.0f);
+			float engineFactor = 1.0f - normalized * normalized;
+
+			float engineForce = throttle * enginePower * engineFactor * driveDir;
+		
+			forwardSpeed += engineForce;
+		}
+		
+		// recombine speeds to get the velocity components
+		xv = forwardSpeed * fx + sideSpeed * sx;
+		yv = forwardSpeed * fy + sideSpeed * sy;
+
+		//Steering:
 		// are we going forward or backwards right now?
 		float direction = Math.signum(forwardSpeed);
 
 		// Steering scales with forward motion but clamps at 1
-		float steerFactor = Math.min(speed / maxSteerSpeed, 1.0f);
-		steerFactor *= steerFactor; // soften high speed
+		float normalized = Math.min(speed / maxSteerSpeed, 1.0f);
+		//too aggressive
+		//float steerFactor = normalized * (1.0f - normalized);
+		//float steerFactor = (float)Math.sqrt(normalized) * (1.0f - normalized);
 
+		float steerFactor =
+		        0.5f * normalized +
+		        0.5f * (float)Math.sqrt(normalized) * (1.0f - normalized);
+
+		if (brake) {
+		    steerFactor *= 0.6f;
+		}	
+		
 		if (left)
 		{
 			rotation -= rotationAmount * steerFactor * direction;
@@ -150,9 +226,6 @@ class RotatingPlayer implements KeyListener
 		x += xv;
 		y += yv;
 
-		// Simple friction
-		xv *= 0.92f;
-		yv *= 0.92f;
 	}
 
 	public void draw(Graphics2D g2)
@@ -202,6 +275,9 @@ class RotatingPlayer implements KeyListener
 		case KeyEvent.VK_D:
 			right = true;
 			break;
+		case KeyEvent.VK_SPACE:
+			brake = true;
+			break;
 		}
 	}
 
@@ -221,6 +297,9 @@ class RotatingPlayer implements KeyListener
 			break;
 		case KeyEvent.VK_D:
 			right = false;
+			break;
+		case KeyEvent.VK_SPACE:
+			brake = false;
 			break;
 		}
 	}
