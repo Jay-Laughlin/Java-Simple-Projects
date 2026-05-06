@@ -2,6 +2,7 @@ package CarPhysics;
 
 import java.awt.BasicStroke;
 import java.awt.Color;
+import java.awt.Font;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Point;
@@ -37,10 +38,13 @@ public class CarRotation
 }
 class MainPanel extends JPanel
 {
-	RotatingPlayer player;
-	JFrame parentFrame;
-	Point cameraOffset;
-	float cameraEasingFactor = 12f;
+	final RotatingPlayer player;
+	final JFrame parentFrame;
+	private Point cameraOffset;
+	
+	final float cameraEasingFactor = 12f;
+	final float minCameraScale = 1.3f;   // zoomed in
+	final float maxCameraScale = 0.6f;   // zoomed out
 	
 	ArrayList<GridAlignedObstacle> obstacles = new ArrayList<>();
 	public MainPanel(JFrame parentFrame)
@@ -52,6 +56,7 @@ class MainPanel extends JPanel
 		this.parentFrame = parentFrame;
 		parentFrame.addKeyListener(player);
 		
+		//AABB
 		//hard coded boundaries (read and add level data here
 		obstacles.add(new GridAlignedObstacle(-1000,-400,50,3800));
 		obstacles.add(new GridAlignedObstacle(2000,-400,50,3800));
@@ -60,10 +65,8 @@ class MainPanel extends JPanel
 		
 		//check angled rotation
 		obstacles.add(new GridRotatedObstacle(500,200,200,200,30));
-		obstacles.add(new GridRotatedObstacle(50,50,50,400,15));
-		
+		obstacles.add(new GridRotatedObstacle(50,50,50,400,15));		
 	}
-
 	public void mainLoop()
 	{
 		ArrayList<Collidable> collidables = new ArrayList<>();
@@ -85,9 +88,11 @@ class MainPanel extends JPanel
 	private void CameraCalculations(Graphics g)
 	{
 		//direct player connection to the camera
-		//Point cameraOffset = player.getPosition();
+		//use this if you want to freeze the camera to the target
+//		cameraOffset = player.getPosition();
 		
 		//easing camera
+		//use this if you want to lag behind the target
 //		Point playerPosition =  player.getPosition();
 //		Point cameraVector = new Point((int)(cameraOffset.getX() - playerPosition.x),
 //									(int)(cameraOffset.getY() - playerPosition.y));
@@ -95,30 +100,22 @@ class MainPanel extends JPanel
 //								cameraOffset.getY()-cameraVector.y/cameraEasingFactor);
 //		
 
+		//we want to push the camera ahead of the target to see better what is coming in front of us
+		//Note that pushing too far ahead, makes the controls feel weird and fishtail-ish
 		float rad = (float)Math.toRadians(player.rotation);
 		float fx = (float)Math.cos(rad);
 		float fy = (float)Math.sin(rad);
 		
+		float normalizedSpeed = player.getNormalizedSpeed();
 
-		float speed = (float)Math.hypot(player.xv, player.yv);
-		float normalizedSpeed = Math.min(speed / player.maxSpeed, 1.0f);
-
-
-		float minLookAhead = 0;
-		float maxLookAhead = 900;
+		float minLookAhead = 50;
+		float maxLookAhead = 600;
 		
-		float lookAheadDistance =
-		        minLookAhead +
-		        normalizedSpeed * (maxLookAhead - minLookAhead);
+		float lookAheadDistance = minLookAhead + normalizedSpeed * 
+						(maxLookAhead - minLookAhead);
 
-
-		float targetX =
-		        player.x + fx * lookAheadDistance;
-		
-		float targetY =
-		        player.y + fy * lookAheadDistance;
-
-		
+		float targetX = player.x + fx * lookAheadDistance;		
+		float targetY = player.y + fy * lookAheadDistance;	
 
 		float dx = (float) (targetX - cameraOffset.getX());
 		float dy = (float) (targetY - cameraOffset.getY());
@@ -127,8 +124,6 @@ class MainPanel extends JPanel
 		    cameraOffset.getX() + dx / cameraEasingFactor,
 		    cameraOffset.getY() + dy / cameraEasingFactor
 		);
-
-
 	}
 	@Override
 	/**
@@ -139,6 +134,20 @@ class MainPanel extends JPanel
 		super.paintComponent(g);
 		Graphics2D g2 = (Graphics2D) g;		
 		setBackground(Color.LIGHT_GRAY);		
+		
+		//Scale based on the speed of the car
+		//scale around the center point of the screen
+		g2.translate(500, 400);
+		AffineTransform trans = g2.getTransform();
+
+		float speed = Math.abs(player.getForwardSpeed());
+		float normalized = Math.min(speed / player.maxSpeed, 1.0f);
+		float scaleFactor = minCameraScale - normalized * (minCameraScale - maxCameraScale);
+
+		trans.scale(scaleFactor, scaleFactor);
+		System.out.println(scaleFactor);
+		g2.setTransform(trans);
+		g2.translate(-500, -400);
 		
 		CameraCalculations(g); //graphics passed for debugging
 				
@@ -172,6 +181,10 @@ class MainPanel extends JPanel
 		}
 
 		// draw the car
+		//put the car in the center of the screen
+		//Note: should use screen width and height instead of hard-coded values
+		g2.translate(500, 400);
+		
 		player.draw(g2,cameraOffset);
 
 		g2.setColor(Color.DARK_GRAY);
@@ -183,6 +196,14 @@ class MainPanel extends JPanel
 		// other things in the scene (above the car)
 //		g2.setColor(Color.DARK_GRAY);
 //		g2.fillRect(200, 300, 100, 100);
+		
+
+		//get back to 0,0 screen coordinates
+		g2.translate(-500, -400);
+		
+		g2.setColor(Color.yellow);
+		g2.setFont(new Font(g2.getFont().getFamily(),Font.PLAIN,30));
+		g2.drawString(String.format("%.2f", player.getForwardSpeed()), 10,50);
 	}
 }
 
@@ -385,6 +406,20 @@ class RotatingPlayer implements KeyListener, Collidable
 	
 	boolean collision;
 	
+	public float getForwardSpeed()
+	{
+		float rad = (float) Math.toRadians(rotation);
+		float fx = (float) Math.cos(rad);
+		float fy = (float) Math.sin(rad);
+		float forwardSpeed = xv * fx + yv * fy;
+		return forwardSpeed;
+	}
+	public float getNormalizedSpeed()
+	{
+		float speed = (float)Math.hypot(xv, yv);
+		return Math.min(speed / maxSpeed, 1.0f);
+
+	}
 	/**
 	 * updates position and rotation of the car based on the input buffer This code
 	 * calculates the forward direction and does movement related to that
@@ -645,9 +680,7 @@ class RotatingPlayer implements KeyListener, Collidable
 
 	public void draw(Graphics2D g2, Point cameraOffset)
 	{
-		//put the car in the center of the screen
-		//Note: should use screen width and height instead of hard-coded values
-		g2.translate(500, 400);
+		
 		
 		AffineTransform old = g2.getTransform();
 
@@ -678,7 +711,6 @@ class RotatingPlayer implements KeyListener, Collidable
 
 		// restore transform
 		g2.setTransform(old);
-		
 		// debug collision shape
 //		g2.setColor(Color.magenta);
 //		Shape s = getCollisionShape();
