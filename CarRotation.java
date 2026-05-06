@@ -58,6 +58,10 @@ class MainPanel extends JPanel
 		obstacles.add(new GridAlignedObstacle(-1000,-400,3000,50));
 		obstacles.add(new GridAlignedObstacle(-1000,3400,3050,50));
 		
+		//check angled rotation
+		obstacles.add(new GridRotatedObstacle(500,200,200,200,30));
+		obstacles.add(new GridRotatedObstacle(50,50,50,400,15));
+		
 	}
 
 	public void mainLoop()
@@ -78,7 +82,54 @@ class MainPanel extends JPanel
 			} catch (Exception e){}
 		}
 	}
+	private void CameraCalculations(Graphics g)
+	{
+		//direct player connection to the camera
+		//Point cameraOffset = player.getPosition();
+		
+		//easing camera
+//		Point playerPosition =  player.getPosition();
+//		Point cameraVector = new Point((int)(cameraOffset.getX() - playerPosition.x),
+//									(int)(cameraOffset.getY() - playerPosition.y));
+//		cameraOffset.setLocation(cameraOffset.getX()-cameraVector.x/cameraEasingFactor, 
+//								cameraOffset.getY()-cameraVector.y/cameraEasingFactor);
+//		
 
+		float rad = (float)Math.toRadians(player.rotation);
+		float fx = (float)Math.cos(rad);
+		float fy = (float)Math.sin(rad);
+		
+
+		float speed = (float)Math.hypot(player.xv, player.yv);
+		float normalizedSpeed = Math.min(speed / player.maxSpeed, 1.0f);
+
+
+		float minLookAhead = 0;
+		float maxLookAhead = 900;
+		
+		float lookAheadDistance =
+		        minLookAhead +
+		        normalizedSpeed * (maxLookAhead - minLookAhead);
+
+
+		float targetX =
+		        player.x + fx * lookAheadDistance;
+		
+		float targetY =
+		        player.y + fy * lookAheadDistance;
+
+		
+
+		float dx = (float) (targetX - cameraOffset.getX());
+		float dy = (float) (targetY - cameraOffset.getY());
+		
+		cameraOffset.setLocation(
+		    cameraOffset.getX() + dx / cameraEasingFactor,
+		    cameraOffset.getY() + dy / cameraEasingFactor
+		);
+
+
+	}
 	@Override
 	/**
 	 * paintComponent is the main drawing for the scene
@@ -89,15 +140,7 @@ class MainPanel extends JPanel
 		Graphics2D g2 = (Graphics2D) g;		
 		setBackground(Color.LIGHT_GRAY);		
 		
-		//direct player connection to the camera
-		//Point cameraOffset = player.getPosition();
-		
-		//easing camera
-		Point playerPosition =  player.getPosition();
-		Point cameraVector = new Point((int)(cameraOffset.getX() - playerPosition.x),
-									(int)(cameraOffset.getY() - playerPosition.y));
-		cameraOffset.setLocation(cameraOffset.getX()-cameraVector.x/cameraEasingFactor, 
-								cameraOffset.getY()-cameraVector.y/cameraEasingFactor);
+		CameraCalculations(g); //graphics passed for debugging
 				
 		// other things in the scene (below the car)
 		g2.setColor(Color.blue);
@@ -143,10 +186,21 @@ class MainPanel extends JPanel
 	}
 }
 
+//transfer object for passing data from the car to the Collidable collision methods
+class CollisionQuery {
+    public final float vx, vy;
+    public final Point2D contactHint;
+
+    public CollisionQuery(float vx, float vy, Point2D contactHint) {
+        this.vx = vx;
+        this.vy = vy;
+        this.contactHint = contactHint;
+    }
+}
 interface Collidable
 {
 	public Shape getCollisionShape();
-	default Point2D getCollisionNormal(Point2D p)
+	default Point2D getCollisionNormal(CollisionQuery p)
 	{
 		return null;
 	}
@@ -154,7 +208,6 @@ interface Collidable
 
 /**
  * Right now only grid aligned obstacles will work
- * Note to fix this, we'd need a better way to calculate the normal of the colliding edge
  */
 class GridAlignedObstacle implements Collidable
 {
@@ -174,8 +227,9 @@ class GridAlignedObstacle implements Collidable
 	{
 		return new Rectangle((int)x,(int)y,(int)width,(int)height);
 	}
-	public Point2D getCollisionNormal(Point2D p)
+	public Point2D getCollisionNormal(CollisionQuery to)
 	{
+		Point2D p = to.contactHint;
 		float left   = (float) p.getX() - x;
 	    float right  = (float) (x + width - p.getX());
 	    float top    = (float) p.getY() - y;
@@ -187,6 +241,107 @@ class GridAlignedObstacle implements Collidable
 	    if (min == right)  return new Point2D.Float(1, 0);
 	    if (min == top)    return new Point2D.Float(0, -1);
 	    return new Point2D.Float(0, 1);
+	}
+}
+/**
+ * Collision with these is a bit... off
+ * Solution will be to do per line collision detection so that I can absolutely know the normal
+ */
+class GridRotatedObstacle extends GridAlignedObstacle
+{
+	int rotation;
+	Point2D[] normals;
+	public GridRotatedObstacle(int x, int y, int width, int height, int rotation)
+	{
+		super(x, y, width, height);
+		this.rotation = rotation;
+
+		float cos = (float)Math.cos(Math.toRadians(rotation));
+		float sin = (float)Math.sin(Math.toRadians(rotation));
+		
+		normals = new Point2D[]{
+		    new Point2D.Float( cos,  sin),   // +X rotated
+		    new Point2D.Float(-cos, -sin),   // -X rotated
+		    new Point2D.Float(-sin,  cos),   // +Y rotated
+		    new Point2D.Float( sin, -cos)    // -Y rotated
+		};
+
+	}
+	public void draw(Graphics2D g2, Point cameraOffset)
+	{
+
+		AffineTransform old = g2.getTransform();
+		
+	    // 1. Move origin to obstacle center (in screen space)
+	    g2.translate(
+	        x + width / 2.0 - cameraOffset.x,
+	        y + height / 2.0 - cameraOffset.y
+	    );
+	
+	    // 2. Rotate around the new origin
+	    g2.rotate(Math.toRadians(rotation));
+	
+	    // 3. Draw rectangle centered at origin
+	    g2.fillRect(
+	        (int)-width / 2,
+	        (int)-height / 2,
+	        (int)width,
+	        (int)height
+	    );
+	
+	    // 4. Restore transform
+	    g2.setTransform(old);
+
+	}
+	public Shape getCollisionShape()
+	{
+
+	    Rectangle2D rect = new Rectangle2D.Float(x, y, width, height);
+
+	    AffineTransform t = new AffineTransform();
+	    t.rotate(Math.toRadians(rotation),
+	             x + width / 2.0,
+	             y + height / 2.0);
+
+	    return t.createTransformedShape(rect);	
+	}
+
+	public Point2D getCollisionNormal(CollisionQuery q)
+	{	
+
+		float cx = x + width  / 2.0f;
+		float cy = y + height / 2.0f;
+
+
+		// Transform contact point into obstacle-local space
+		float rad = (float)Math.toRadians(-rotation);
+		float cos = (float)Math.cos(rad);
+		float sin = (float)Math.sin(rad);
+
+		float localX =  (float)((q.contactHint.getX() - cx) * cos
+		                       - (q.contactHint.getY() - cy) * sin);
+		float localY =  (float)((q.contactHint.getX() - cx) * sin
+		                       + (q.contactHint.getY() - cy) * cos);
+
+
+		float dx = Math.abs(localX) - width  / 2f;
+		float dy = Math.abs(localY) - height / 2f;
+		
+		// Choose the dominant penetration axis
+		boolean hitLongSide = dx > dy;
+		
+
+		if (hitLongSide) {
+		    // normal is ±X face in local space
+		    float sign = Math.signum(localX);
+		    return new Point2D.Float(sign * cos, sign * sin);
+		} else {
+		    // normal is ±Y face in local space
+		    float sign = Math.signum(localY);
+		    return new Point2D.Float(-sign * sin, sign * cos);
+		}
+
+
 	}
 }
 /*
@@ -390,41 +545,64 @@ class RotatingPlayer implements KeyListener, Collidable
 		collision = false;
 		Shape ourShape = getCollisionShape();
 		Area ourArea = new Area(ourShape);
+		
 		for (Collidable c : collisionShapes)
 		{
 			Area area = new Area(c.getCollisionShape());
-			area.intersect(ourArea);
-			if (!area.isEmpty())
-			{
-				//collision occurred
-				collision = true;
+			boolean collide = checkCollision(ourArea, area);
+			collision |= collide;
+			if (collide)
 				handleCollision(c, area);
-			}
 		}
+	}
+	
+	public boolean checkCollision(Area ourArea, Area theirArea)
+	{					
+		theirArea.intersect(ourArea);
+		return !theirArea.isEmpty();		
 	}
 	public void handleCollision(Collidable c, Area area)
 	{
 		//normal of the surface we are colliding with
-		Point2D collisionNormal = c.getCollisionNormal(getPosition());
+		Point2D collisionNormal = c.getCollisionNormal(new CollisionQuery(xv,yv,getPosition()));
 		float nx = (float) collisionNormal.getX();
 		float ny = (float) collisionNormal.getY();
 		
-		Rectangle2D overlapBounds = area.getBounds2D();
-		float penetrationDepth = (float)Math.min(
-		    overlapBounds.getWidth(),
-		    overlapBounds.getHeight()
-		);
+		//simple move out of the object
+			Rectangle2D overlapBounds = area.getBounds2D();
+			float penetrationDepth = (float)Math.min(
+			    overlapBounds.getWidth(),
+			    overlapBounds.getHeight()
+			);
+			
+			//move car out of the object we are colliding with
+			x += nx * penetrationDepth;
+			y += ny * penetrationDepth;
 		
-		//move car out of the object we are colliding with
-		x += nx * penetrationDepth;
-		y += ny * penetrationDepth;
-		
+		//manually loop to move out of what we're colliding with:
+//			int iterations = 0;
+//			int max = 20;
+//			while (intersecting && iterations < max) {
+//			    x += nx * step;
+//			    y += ny * step;
+//			}
+
+			
+			
 		//stop velocity in the direction of the normal
 		float vn = xv * nx + yv * ny;
 		if (vn < 0) {
 		    xv -= vn * nx;
 		    yv -= vn * ny;
 		}
+		
+
+//		// Keep only tangential velocity explicitly
+//		float vt = xv * (-ny) + yv * nx;
+//
+//		xv = vt * (-ny);
+//		yv = vt * nx;
+
 
 		
 		//get which corner collided with the object:
@@ -558,6 +736,5 @@ class RotatingPlayer implements KeyListener, Collidable
 	@Override
 	public void keyTyped(KeyEvent e)
 	{
-	}
-	
+	}	
 }
