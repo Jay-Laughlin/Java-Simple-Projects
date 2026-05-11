@@ -2,6 +2,7 @@ package CarPhysics;
 
 import java.awt.BasicStroke;
 import java.awt.Color;
+import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
@@ -24,13 +25,13 @@ public class CarRotation
 
 	public static void main(String[] args)
 	{
-		JFrame frame = new JFrame("Top Down Car");
-		frame.setSize(1000, 800);
+		JFrame frame = new JFrame("Top Down Car");		
 		frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-		frame.setLocationRelativeTo(null);
 		
-		MainPanel panel = new MainPanel(frame);
+		MainPanel panel = new MainPanel(frame, 1000, 600);
 		frame.add(panel);
+		frame.pack();				//use the contents to set the size
+		frame.setLocationRelativeTo(null);//center it in the screen
 		frame.setVisible(true);
 
 		panel.mainLoop();
@@ -46,9 +47,16 @@ class MainPanel extends JPanel
 	final float minCameraScale = 1.3f;   // zoomed in
 	final float maxCameraScale = 0.6f;   // zoomed out
 	
+	public final int WIDTH, HEIGHT;
+	
 	ArrayList<GridAlignedObstacle> obstacles = new ArrayList<>();
-	public MainPanel(JFrame parentFrame)
+	public MainPanel(JFrame parentFrame, int width, int height)
 	{
+		WIDTH = width;
+		HEIGHT = height;
+		
+		this.setPreferredSize(new Dimension(WIDTH,HEIGHT));
+		
 		player = new RotatingPlayer();
 		
 		Point2D playerPt = player.getPosition();
@@ -106,6 +114,8 @@ class MainPanel extends JPanel
 		float fx = (float)Math.cos(rad);
 		float fy = (float)Math.sin(rad);
 		
+		float dir = Math.signum(player.getForwardSpeed());
+		
 		float normalizedSpeed = player.getNormalizedSpeed();
 
 		float minLookAhead = 50;
@@ -114,8 +124,8 @@ class MainPanel extends JPanel
 		float lookAheadDistance = minLookAhead + normalizedSpeed * 
 						(maxLookAhead - minLookAhead);
 
-		float targetX = player.x + fx * lookAheadDistance;		
-		float targetY = player.y + fy * lookAheadDistance;	
+		float targetX = player.x + fx * lookAheadDistance * dir;		
+		float targetY = player.y + fy * lookAheadDistance * dir;	
 
 		float dx = (float) (targetX - cameraOffset.getX());
 		float dy = (float) (targetY - cameraOffset.getY());
@@ -137,17 +147,15 @@ class MainPanel extends JPanel
 		
 		//Scale based on the speed of the car
 		//scale around the center point of the screen
-		g2.translate(500, 400);
-		AffineTransform trans = g2.getTransform();
-
+		g2.translate(WIDTH/2, HEIGHT/2);
+		
 		float speed = Math.abs(player.getForwardSpeed());
 		float normalized = Math.min(speed / player.maxSpeed, 1.0f);
 		float scaleFactor = minCameraScale - normalized * (minCameraScale - maxCameraScale);
 
-		trans.scale(scaleFactor, scaleFactor);
-		System.out.println(scaleFactor);
-		g2.setTransform(trans);
-		g2.translate(-500, -400);
+		//System.out.println(scaleFactor);
+		g2.scale(scaleFactor,scaleFactor);
+		g2.translate(-WIDTH/2, -HEIGHT/2);
 		
 		CameraCalculations(g); //graphics passed for debugging
 				
@@ -183,7 +191,7 @@ class MainPanel extends JPanel
 		// draw the car
 		//put the car in the center of the screen
 		//Note: should use screen width and height instead of hard-coded values
-		g2.translate(500, 400);
+		g2.translate(WIDTH/2, HEIGHT/2);
 		
 		player.draw(g2,cameraOffset);
 
@@ -194,12 +202,12 @@ class MainPanel extends JPanel
 		}
 		
 		// other things in the scene (above the car)
-//		g2.setColor(Color.DARK_GRAY);
-//		g2.fillRect(200, 300, 100, 100);
+			//tree tops?
 		
 
 		//get back to 0,0 screen coordinates
-		g2.translate(-500, -400);
+		g2.scale(1/scaleFactor, 1/scaleFactor);	//to undo scale we have to get the inverse
+		g2.translate(-WIDTH/2, -HEIGHT/2);		
 		
 		g2.setColor(Color.yellow);
 		g2.setFont(new Font(g2.getFont().getFamily(),Font.PLAIN,30));
@@ -378,8 +386,12 @@ class RotatingPlayer implements KeyListener, Collidable
 	float xv = 0, yv = 0;
 	float throttle; //stores acceleration
 
+	// Car dimensions/size
+	final int carLength = 40;
+	final int carWidth = 22;
+	
 	// Motion tuning
-	float maxSpeed = 40f;
+	float maxSpeed = 20f;
 	float rotation = 0f; // degrees
 	float rotationAmount = 7.5f; // base steering strength
 	float maxSteerSpeed = 7.0f; // speed at which steering is fully enabled
@@ -398,12 +410,6 @@ class RotatingPlayer implements KeyListener, Collidable
 	
 	// Input buffer
 	boolean up, down, left, right, brake;
-
-	// Car dimensions/size
-	final int carLength = 40;
-	final int carWidth = 22;
-
-	
 	boolean collision;
 	
 	public float getForwardSpeed()
@@ -425,7 +431,7 @@ class RotatingPlayer implements KeyListener, Collidable
 	 * calculates the forward direction and does movement related to that
 	 */
 	public void update()
-	{
+	{		
 		float rad = (float) Math.toRadians(rotation);
 
 		// Forward direction
@@ -621,8 +627,6 @@ class RotatingPlayer implements KeyListener, Collidable
 //			    x += nx * step;
 //			    y += ny * step;
 //			}
-
-			
 			
 		//stop velocity in the direction of the normal
 		float vn = xv * nx + yv * ny;
@@ -679,9 +683,7 @@ class RotatingPlayer implements KeyListener, Collidable
 	}
 
 	public void draw(Graphics2D g2, Point cameraOffset)
-	{
-		
-		
+	{		
 		AffineTransform old = g2.getTransform();
 
 		// Move origin to car center
@@ -714,9 +716,7 @@ class RotatingPlayer implements KeyListener, Collidable
 		// debug collision shape
 //		g2.setColor(Color.magenta);
 //		Shape s = getCollisionShape();
-//		g2.draw(s);
-		
-		
+//		g2.draw(s);		
 	}
 
 	@Override
